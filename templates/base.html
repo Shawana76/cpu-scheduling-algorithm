@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <title>{% block title %}Process Scheduler App{% endblock %}</title>
+    <!-- Bootstrap 4 CSS -->
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
+    <!-- Custom Styles -->
+    
+  </head>
+  <body>
+    <div class="container my-4">
+      <header class="mb-4 text-center">
+        <h1 class="display-4 text-white">Process Scheduler App</h1>
+      </header>
+      <main>
+        {% block content %}{% endblock %}
+      </main>
+      <footer class="mt-4 text-center">
+        <p class="text-muted">&copy; 2025 Process Scheduler App. All Rights Reserved.</p>
+      </footer>
+    </div>
+    <!-- Optional Bootstrap 4 JS dependencies -->
+    <script src="https://code.jquery.com/jquery-3.2.1.slim.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js"></script>
+  </body>
+</html>

@@ -1,0 +1,693 @@
+{% extends "base.html" %}
+{% block title %}Dashboard | Process Scheduler App{% endblock %}
+{% block content %}
+<div class="row mb-3">
+  <div class="col-md-8">
+    <h2 class="mb-0">Hello, {{ session.username }}!</h2>
+  </div>
+  <div class="col-md-4 text-right">
+    <a href="{{ url_for('auth.logout') }}" class="btn btn-danger">Logout</a> 
+  </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+{% for category, message in messages %}
+<div class="alert alert-{{ 'success' if category=='success' else 'danger' }} alert-dismissible fade show" role="alert">
+  {{ message }}
+  <button type="button" class="close" data-dismiss="alert">&times;</button>
+</div>
+{% endfor %}
+{% endif %}
+{% endwith %}
+
+<section class="mb-4">
+  <div class="card">
+    <div class="card-header bg-info text-white">Create a New Process</div>
+    <div class="card-body">
+      <form action="{{ url_for('process.add_process') }}" method="post">
+        <div class="form-row">
+          <div class="form-group col-md-3">
+            <label for="pid">Process ID</label>
+            <input type="text" class="form-control" name="pid" id="pid" required>
+          </div>
+          <div class="form-group col-md-3">
+            <label for="arrival">Arrival Time</label>
+            <input type="number" class="form-control" name="arrival" id="arrival" min="0" step="any" required>
+          </div>
+          <div class="form-group col-md-3">
+            <label for="burst">Burst Time</label>
+            <input type="number" class="form-control" name="burst" id="burst" min="0" step="any" required>
+          </div>
+          <div class="form-group col-md-3">
+            <label for="priority">Priority (optional)</label>
+            <input type="number" class="form-control" name="priority" id="priority" min="0" step="any">
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary">Add Process</button>
+    
+      </form>
+    </div>
+  </div>
+</section>
+
+<section class="mb-4">
+  <h3>Current Processes</h3>
+  {% if processes %}
+  <div class="table-responsive">
+    <table class="table table-striped table-hover">
+      <thead class="thead-dark">
+        <tr>
+          <th>ID</th>
+          <th>Arrival</th>
+          <th>Burst</th>
+          <th>Priority</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in processes %}
+        <tr>
+          <td>{{ p.pid }}</td>
+          <td>{{ p.arrival }}</td>
+          <td>{{ p.burst }}</td>
+          <td>{{ p.priority if p.priority is not none else 'N/A' }}</td>
+          <td>
+            <a href="{{ url_for('process.modify_process', pid=p.pid) }}" class="btn btn-sm btn-warning">Edit</a>
+            <a href="{{ url_for('process.delete_process', pid=p.pid) }}" class="btn btn-sm btn-danger"
+              onclick="return confirm('Confirm deletion?');">Delete</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>No processes available. Please add one.</p>
+  {% endif %}
+</section>
+
+<section class="mb-4">
+  <h3>Save or Retrieve Processes</h3>
+  <div class="d-flex align-items-center">
+    <form action="{{ url_for('process.save_processes') }}" method="post" class="mr-3">
+      <button type="submit" class="btn btn-outline-success">Save Processes</button>
+    </form>
+    <a href="{{ url_for('process.load_processes') }}" class="btn btn-outline-secondary">Load Processes</a>
+  </div>
+</section>
+
+<section class="mb-4">
+  <div class="card">
+    <div class="card-header bg-secondary text-white">Run Simulation</div>
+    <div class="card-body">
+      <form id="simulationForm" method="post">
+        <div class="form-group">
+          <label for="algorithm">Select Algorithm</label>
+          <select class="form-control" id="algorithm" name="algorithm" onchange="toggleQuantumInput()">
+            <option value="fcfs">First Come First Served (FCFS)</option>
+            <option value="sjf">Shortest Job First (Non-preemptive)</option>
+            <option value="srtf">Shortest Remaining Time First (Preemptive SJF)</option>
+            <option value="priority_np">Priority Scheduling (Non-preemptive)</option>
+            <option value="priority_p">Priority Scheduling (Preemptive)</option>
+            <option value="rr">Round Robin (RR)</option>
+          </select>
+        </div>
+        <div class="form-group mt-2" id="quantumInput" style="display: none;">
+          <label for="quantum">Quantum Time (for RR)</label>
+          <input type="number" class="form-control" id="quantum" name="quantum" min="1">
+        </div>
+        <button type="submit" class="btn btn-success btn-block">Simulate</button>
+      </form>
+    </div>
+  </div>
+</section>
+
+<article class="card" id="resultCard" style="display:none;">
+  <div class="card-header bg-dark text-white">Simulation Result</div>
+  <div class="card-body">
+    <article>
+  </div>
+</article>
+<button id="showSummaryBtn" class="btn btn-primary btn-block mt-2">Visualization</button>
+<div class="card-body" id="resultContainer"></div>
+<div id="ganttChartContainer" class="mt-4">
+  <h5>Gantt Chart</h5>
+  <canvas id="ganttChart" height="100" width="100px"></canvas>
+</div>
+<style>
+  #ganttChartContainer {
+  border: 1px solid #ccc;
+  padding: 15px;
+  background-color: #f9f9f9;
+}
+</style>
+
+
+<script>
+  // Assume `processes` variable is injected server-side as JSON, example:
+  // const processes = [{pid: "P1", arrival: 0, burst: 5, priority: 2}, ...];
+  const processes = {{ processes | tojson | safe }};
+  console.log("Loaded processes:", processes);
+
+  function toggleQuantumInput() {
+    const algorithm = document.getElementById("algorithm").value;
+    const quantumDiv = document.getElementById("quantumInput");
+    quantumDiv.style.display = algorithm === "rr" ? "block" : "none";
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    toggleQuantumInput();
+
+    document.getElementById("simulationForm").addEventListener("submit", (e) => {
+      e.preventDefault();
+      runSimulation();
+    });
+  });
+
+  // Scheduling Algorithms Implementation
+
+  function fcfs(proc) {
+    let time = 0;
+    const result = [];
+    const sorted = [...proc].sort((a, b) => a.arrival - b.arrival);
+    sorted.forEach((p) => {
+      if (time < p.arrival) time = p.arrival;
+      const start = time;
+      const finish = start + p.burst;
+      result.push({
+        pid: p.pid,
+        start,
+        finish,
+        waiting: start - p.arrival,
+        turnaround: finish - p.arrival,
+      });
+      time = finish;
+    });
+    return result;
+  }
+
+  function sjf(proc) {
+    let time = 0;
+    const result = [];
+    let processes = [...proc].map(p => ({ ...p }));
+    let completed = 0;
+    const n = processes.length;
+    const isCompleted = Array(n).fill(false);
+
+    while (completed < n) {
+      let idx = -1;
+      let minBurst = Number.MAX_VALUE;
+      for (let i = 0; i < n; i++) {
+        if (
+          processes[i].arrival <= time &&
+          !isCompleted[i] &&
+          processes[i].burst < minBurst
+        ) {
+          minBurst = processes[i].burst;
+          idx = i;
+        }
+      }
+      if (idx === -1) {
+        time++;
+        continue;
+      }
+      const p = processes[idx];
+      const start = time;
+      const finish = start + p.burst;
+      result.push({
+        pid: p.pid,
+        start,
+        finish,
+        waiting: start - p.arrival,
+        turnaround: finish - p.arrival,
+      });
+      time = finish;
+      isCompleted[idx] = true;
+      completed++;
+    }
+    return result;
+  }
+
+  function srtf(proc) {
+    const n = proc.length;
+    let time = 0,
+      completed = 0;
+    const processes = [...proc].map(p => ({ ...p, remaining: p.burst }));
+    const isCompleted = Array(n).fill(false);
+    const startTimes = Array(n).fill(null);
+    const result = [];
+
+    while (completed < n) {
+      let idx = -1;
+      let minRemaining = Number.MAX_VALUE;
+      for (let i = 0; i < n; i++) {
+        if (
+          processes[i].arrival <= time &&
+          !isCompleted[i] &&
+          processes[i].remaining < minRemaining &&
+          processes[i].remaining > 0
+        ) {
+          minRemaining = processes[i].remaining;
+          idx = i;
+        }
+      }
+      if (idx === -1) {
+        time++;
+        continue;
+      }
+
+      if (startTimes[idx] === null) startTimes[idx] = time;
+
+      processes[idx].remaining--;
+      time++;
+
+      if (processes[idx].remaining === 0) {
+        isCompleted[idx] = true;
+        completed++;
+        const p = processes[idx];
+        result.push({
+          pid: p.pid,
+          start: startTimes[idx],
+          finish: time,
+          waiting: time - p.arrival - p.burst,
+          turnaround: time - p.arrival,
+        });
+      }
+    }
+
+    result.sort((a, b) => a.start - b.start);
+    return result;
+  }
+
+  function priority_np(proc) {
+    let time = 0;
+    const n = proc.length;
+    let completed = 0;
+    let processes = [...proc].map(p => ({ ...p }));
+    const isCompleted = Array(n).fill(false);
+    const result = [];
+
+    while (completed < n) {
+      let idx = -1;
+      let highestPriority = Number.MAX_VALUE;
+      for (let i = 0; i < n; i++) {
+        if (
+          processes[i].arrival <= time &&
+          !isCompleted[i] &&
+          processes[i].priority < highestPriority
+        ) {
+          highestPriority = processes[i].priority;
+          idx = i;
+        }
+      }
+      if (idx === -1) {
+        time++;
+        continue;
+      }
+      const p = processes[idx];
+      const start = time;
+      const finish = start + p.burst;
+      result.push({
+        pid: p.pid,
+        start,
+        finish,
+        waiting: start - p.arrival,
+        turnaround: finish - p.arrival,
+      });
+      time = finish;
+      isCompleted[idx] = true;
+      completed++;
+    }
+    return result;
+  }
+
+  function priority_p(proc) {
+    const n = proc.length;
+    let time = 0;
+    let completed = 0;
+    const processes = [...proc].map(p => ({ ...p, remaining: p.burst }));
+    const isCompleted = Array(n).fill(false);
+    const startTimes = Array(n).fill(null);
+    const result = [];
+
+    while (completed < n) {
+      let idx = -1;
+      let highestPriority = Number.MAX_VALUE;
+      for (let i = 0; i < n; i++) {
+        if (
+          processes[i].arrival <= time &&
+          !isCompleted[i] &&
+          processes[i].remaining > 0 &&
+          processes[i].priority < highestPriority
+        ) {
+          highestPriority = processes[i].priority;
+          idx = i;
+        }
+      }
+      if (idx === -1) {
+        time++;
+        continue;
+      }
+      if (startTimes[idx] === null) startTimes[idx] = time;
+
+      processes[idx].remaining--;
+      time++;
+
+      if (processes[idx].remaining === 0) {
+        isCompleted[idx] = true;
+        completed++;
+        const p = processes[idx];
+        result.push({
+          pid: p.pid,
+          start: startTimes[idx],
+          finish: time,
+          waiting: time - p.arrival - p.burst,
+          turnaround: time - p.arrival,
+        });
+      }
+    }
+
+    result.sort((a, b) => a.start - b.start);
+    return result;
+  }
+
+  function rr(proc, quantum) {
+    const n = proc.length;
+    const processes = [...proc].map(p => ({ ...p, remaining: p.burst }));
+    const queue = [];
+    const result = [];
+    let time = 0;
+    const completed = Array(n).fill(false);
+    const startTimes = Array(n).fill(null);
+    let completedCount = 0;
+
+    // Sort by arrival
+    processes.sort((a, b) => a.arrival - b.arrival);
+
+    let i = 0;
+    while (completedCount < n) {
+      // Add all processes that have arrived to queue
+      while (i < n && processes[i].arrival <= time) {
+        queue.push(i);
+        i++;
+      }
+
+      if (queue.length === 0) {
+        time++;
+        continue;
+      }
+
+      const idx = queue.shift();
+
+      if (startTimes[idx] === null) startTimes[idx] = time;
+
+      let execTime = Math.min(quantum, processes[idx].remaining);
+      processes[idx].remaining -= execTime;
+      const start = time;
+      time += execTime;
+      const finish = time;
+
+      // During execution, add newly arrived processes to queue
+      while (i < n && processes[i].arrival <= time) {
+        queue.push(i);
+        i++;
+      }
+
+      if (processes[idx].remaining > 0) {
+        queue.push(idx); // re-add to queue if not finished
+      } else {
+        completed[idx] = true;
+        completedCount++;
+        result.push({
+          pid: processes[idx].pid,
+          start: startTimes[idx],
+          finish: finish,
+          waiting: finish - processes[idx].arrival - processes[idx].burst,
+          turnaround: finish - processes[idx].arrival,
+          turnaround: finish - processes[idx].arrival,
+        });
+      }
+    }
+
+    // Sort results by start time for display
+    result.sort((a, b) => a.start - b.start);
+    return result;
+  }
+
+  // Utility to display results in a table
+  function displayResults(result) {
+    if (!result || result.length === 0) {
+      return `<p>No results to display.</p>`;
+    }
+    let html = `<table class="table table-striped table-bordered">
+      <thead>
+        <tr>
+          <th>Process</th>
+          <th>Start Time</th>
+          <th>Finish Time</th>
+          <th>Waiting Time</th>
+          <th>Turnaround Time</th>
+        </tr>
+      </thead>
+      <tbody>`;
+
+    result.forEach(r => {
+      html += `<tr>
+        <td>${r.pid}</td>
+        <td>${r.start}</td>
+        <td>${r.finish}</td>
+        <td>${r.waiting}</td>
+        <td>${r.turnaround}</td>
+      </tr>`;
+    });
+
+    html += "</tbody></table>";
+    return html;
+  }
+
+  // Main function to run simulation
+  function runSimulation() {
+    const algorithm = document.getElementById("algorithm").value;
+    let quantum = parseInt(document.getElementById("quantum").value);
+    if (algorithm === "rr" && (isNaN(quantum) || quantum < 1)) {
+      alert("Please enter a valid Quantum Time for Round Robin.");
+      return;
+    }
+
+    if (!processes || processes.length === 0) {
+      alert("No process data available to simulate.");
+      return;
+    }
+
+    let result = [];
+    switch (algorithm) {
+      case "fcfs":
+        result = fcfs(processes);
+        break;
+      case "sjf":
+        result = sjf(processes);
+        break;
+      case "srtf":
+        result = srtf(processes);
+        break;
+      case "priority_np":
+        result = priority_np(processes);
+        break;
+      case "priority_p":
+        result = priority_p(processes);
+        break;
+      case "rr":
+        result = rr(processes, quantum);
+        break;
+      default:
+        alert("Unknown algorithm selected.");
+        return;
+    }
+
+    // Show results
+    document.getElementById("resultContainer").innerHTML = displayResults(result);
+    document.getElementById("resultCard").style.display = "block";
+    document.getElementById("showSummaryBtn").style.display = "block";
+    // 👉 Add this line to draw Gantt chart
+    drawGanttChart(result);
+  }
+
+  document.getElementById("showSummaryBtn").addEventListener("click", () => {
+    const algorithms = [
+      { id: "fcfs", name: "First Come First Served (FCFS)" },
+      { id: "sjf", name: "Shortest Job First (Non-preemptive)" },
+      { id: "srtf", name: "Shortest Remaining Time First (Preemptive SJF)" },
+      { id: "priority_np", name: "Priority Scheduling (Non-preemptive)" },
+      { id: "priority_p", name: "Priority Scheduling (Preemptive)" },
+      { id: "rr", name: "Round Robin (RR)" },
+    ];
+
+    const quantum = Number(document.getElementById("quantum").value) || 2; // default 2
+
+    let summaryResults = [];
+
+    for (const algo of algorithms) {
+      let res;
+      if (algo.id === "rr") {
+        res = rr(processes, quantum);
+      } else {
+        switch (algo.id) {
+          case "fcfs":
+            res = fcfs(processes);
+            break;
+          case "sjf":
+            res = sjf(processes);
+            break;
+          case "srtf":
+            res = srtf(processes);
+            break;
+          case "priority_np":
+            res = priority_np(processes);
+            break;
+          case "priority_p":
+            res = priority_p(processes);
+            break;
+        }
+      }
+      if (res.length > 0) {
+        const avgTurnaround =
+          res.reduce((sum, r) => sum + r.turnaround, 0) / res.length;
+        const avgWaiting =
+          res.reduce((sum, r) => sum + r.waiting, 0) / res.length;
+        const avgResponse =
+          res.reduce((sum, r) => sum + (r.start - processes.find(p => p.pid === r.pid).arrival), 0) / res.length;
+
+        const minArrival = Math.min(...processes.map(p => p.arrival));
+        const maxFinish = Math.max(...res.map(r => r.finish));
+        const totalTime = maxFinish - minArrival;
+        summaryResults.push({
+          algorithm: algo.name,
+          averageTurnaround: avgTurnaround.toFixed(2),
+          averageWaiting: avgWaiting.toFixed(2),
+          averageResponse: avgResponse.toFixed(2),
+          utilization: ((res.length / totalTime) * 100).toFixed(2) + "%",
+          throughput: (res.length / totalTime).toFixed(2)
+        });
+      }
+    }
+
+    // Display summary in result container
+    const container = document.getElementById("resultContainer");
+    container.innerHTML = ""; // Clear previous results
+
+    const table = document.createElement("table");
+    table.className = "table table-bordered table-striped";
+
+    const thead = document.createElement("thead");
+    thead.innerHTML = `
+      <tr>
+        <th>Algorithm</th>
+        <th>Average Turnaround Time</th>
+        <th>Average Waiting Time</th>
+        <th>Average Response Time</th>
+        <th>Average Utilization Time</th>
+        <th>Average throughput</th>
+      </tr>
+      `;
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    summaryResults.forEach((row) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+      <td>${row.algorithm}</td>
+      <td>${row.averageTurnaround}</td>
+      <td>${row.averageWaiting}</td>
+      <td>${row.averageResponse}</td>
+      <td>${row.utilization}</td>
+      <td>${row.throughput}</td>
+    `;
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+
+    container.appendChild(table);
+
+    document.getElementById("resultCard").style.display = "block";
+
+    // --- Generate CSV and trigger download ---
+    const csvHeader = [
+      "Algorithm",
+      "Average Turnaround Time",
+      "Average Waiting Time",
+      "Average Response Time",
+      "Average Utilization Time",
+      "Average throughput"
+    ];
+    const csvRows = summaryResults.map(r => [
+      r.algorithm,
+      r.averageTurnaround,
+      r.averageWaiting,
+      r.averageResponse,
+      r.utilization,
+      r.throughput
+    ]);
+
+
+    let csvContent = csvHeader.join(",") + "\n";
+    csvRows.forEach(row => {
+      csvContent += row.join(",") + "\n";
+    });
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "simulation_summary.csv";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+
+
+
+  function drawGanttChart(result) {
+  const canvas = document.getElementById("ganttChart");
+  const ctx = canvas.getContext("2d");
+
+  const scale = 20; // Smaller width per unit time
+  const chartWidth = Math.max(...result.map(r => r.finish)) * scale;
+  canvas.width = chartWidth;
+  canvas.height = 60; // Smaller height
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const barHeight = 20;
+  const barY = 10;
+
+  result.forEach((r, index) => {
+    const x = r.start * scale;
+    const width = (r.finish - r.start) * scale;
+
+    ctx.fillStyle = "#007bff";
+    ctx.fillRect(x, barY, width, barHeight);
+
+    ctx.strokeStyle = "#000";
+    ctx.strokeRect(x, barY, width, barHeight);
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "12px Arial";
+    ctx.fillText(r.pid, x + width / 2 - 10, barY + 15);
+
+    ctx.fillStyle = "#000";
+    ctx.font = "10px Arial";
+    ctx.fillText(r.start, x - 2, barY + barHeight + 10);
+    if (index === result.length - 1) {
+      ctx.fillText(r.finish, x + width - 5, barY + barHeight + 10);
+    }
+  });
+}
+
+
+</script>
+
+{% endblock %}
+
